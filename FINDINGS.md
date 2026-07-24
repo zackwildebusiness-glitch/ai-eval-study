@@ -2,7 +2,10 @@
 
 **Author:** Zack Wilde · **Date:** 2026-07-24 · Draft
 
-## TL;DR
+## TL;DR (v2 — current)
+Two studies. **v1** compared two frontier models and found complete correctness parity, with the LLM-judge clustering at the ceiling (89% identical perfect scores) — a result I could not distinguish from the code simply being uniformly good. **v2** settled it by planting 10 subtly-broken solutions into the blind pool: the same judge, on a byte-identical prompt, **caught 7 of 10 with zero false positives across 46 clean solutions**. So v1's ceiling was accuracy, not leniency — my own initial bias hypothesis was wrong, and is recorded as such. The sharper finding is *which* three it missed: every bug it caught was locally pattern-visible (a wrong operator, a missing bounds check), and every bug it missed required **simulating program state across iterations**. An LLM-judge reading code statically behaves like a strong linter, not a correctness oracle. Secondary: on bugs it *did* catch it still rated `code_quality` 4 — correctness and style scores came apart, so collapsing rubric dimensions into one number would erase the signal. Full v2 section below; v1 as originally published follows it.
+
+## v1 TL;DR
 I built a small evaluation designed to score coding-model output three independent ways — **objective unit tests, an LLM-as-judge, and a blind human rater**. Two of the three were populated in v1; the human pass was built and blind-ready but deliberately left unrun, because the judge's near-zero variance makes the human-vs-judge agreement statistic undefined regardless of how much rating is done (see §3). Two frontier models (Claude Opus and Claude Sonnet) came out at **complete correctness parity** (100% of unit tests each, across 23 tasks with independently-verified ground truth). The lightweight LLM-judge (Claude Haiku) **clustered at the ceiling**: 89% of 46 blind solutions got an identical perfect 5/5/5/5, even when explicitly instructed to differentiate. On uniformly-correct inputs this is *consistent with* saturation/leniency bias — but, honestly, it is **not distinguishable** from the code genuinely being uniformly good, which is exactly why the recommended next step feeds the judge known-bad code. The practical takeaway: **an LLM-judge cannot be validated without variance in the inputs**, and agreement metrics like Cohen's kappa are undefined when a rater doesn't discriminate.
 
 ## Why I built it
@@ -51,6 +54,56 @@ Per-dimension means: correctness **5.00**, completeness **5.00**, instruction-ad
 
 ## What I'd do next (and why it's the more valuable study)
 The ceiling effect here is the finding *and* the limitation: frontier models don't fail on famous problems, so there's nothing for the judge to be caught missing. The natural next iteration is a **judge-sensitivity study**: plant solutions with subtle, known bugs (that fail the hidden tests) into the blind pool and measure whether the judge catches them. Every case where the judge rates a test-failing solution highly is a quantified judge failure mode — the result that actually tells you whether an automated judge can be trusted in production.
+
+*(That study was then run. See v2 below.)*
+
+---
+
+# v2 — Planted-Bug Judge-Sensitivity Study
+
+**The analysis plan for this section was pre-registered in `PROTOCOL.md` before any v2 score existed** — detection thresholds, bug admissibility, and the interpretation rules for both a high and a low detection rate. Git history is the timestamp. Nothing below was chosen after seeing the outcome.
+
+## Method
+Ten solutions derived from real model output, each carrying exactly one subtle documented defect (`planted_bugs.csv`), were mixed blind into the pool as a third arm. Each was verified to fail at least one hidden test while passing the majority — **71–89% of tests still passing**, so no seeded item was detectable by simply crashing. Bug classes were spread across ten kinds (boundary operator, off-by-one loop bound, missing edge guard, stale-index window, wrong iteration direction, stack guard, `zip` truncation, single-digit accumulation, boundary comparison, half-applied integer clamp) so the result is not an artifact of one defect type.
+
+The pool grew 46 → 56 and was **re-judged in a single pass**. `judge_prompt.md` and `rubric.md` were held **byte-identical to v1**, so the input pool is the only variable.
+
+## Result: the judge caught 7 of 10, with zero false positives
+
+| | |
+|---|---|
+| Seeded bugs detected (correctness ≤ 3) | **7 / 10** |
+| Seeded bugs missed (correctness ≥ 4 on failing code) | **3 / 10** |
+| False positives (clean solutions wrongly flagged) | **0 / 46** |
+| Judge mean, control arm | **3.40** |
+| Judge mean, both subject models | **5.00** |
+
+The judge separated seeded from clean code cleanly, and did not smear suspicion across the pool to get there.
+
+## This resolves v1's central ambiguity — against my own initial hypothesis
+v1 could not tell judge leniency apart from the code genuinely being uniformly good. v2 answers it: **the same judge, on the same prompt, discriminates sharply the moment there is something to find.** So v1's ceiling-clustering was *not* saturation bias — it was a correct read of genuinely uniform code. The leniency hypothesis I raised in v1 is not supported, and I am recording that rather than quietly dropping it.
+
+## The more interesting result: *which* three it missed
+
+| Missed | The defect | What catching it requires |
+|---|---|---|
+| `12_spiral_order` | unguarded final column traversal | tracing boundary state around a 1-column matrix |
+| `14_length_of_longest_substring` | window start rewound by a stale index | tracing window state across iterations on `"abba"` |
+| `16_multiply_strings` | outer loop iterates the wrong direction | tracing place-value accumulation through carries |
+
+All seven **caught** bugs are *local and pattern-visible* — a single operator (`<` vs `<=`, `>= 255` vs `> 255`), a single wrong constant (`len(stack) > 1`), a known idiom pitfall (`zip` silently truncating), a missing bounds check. All three **missed** bugs require **simulating program state across iterations** to see the defect at all.
+
+**The hypothesis this supports:** an LLM-judge reading code statically behaves like a strong linter — excellent at recognising defect *patterns*, blind to defects that only appear when you execute the code in your head. That is a much sharper and more actionable claim than "LLM judges are lenient," and it maps directly onto when an automated judge is safe to deploy: use it to screen for known defect shapes, do not trust it as a correctness oracle for stateful logic.
+
+**Bounding this honestly:** n = 10 seeded items, one judge model, one task family. Three misses is enough to notice a pattern and not enough to prove one — the local-vs-stateful split is a hypothesis consistent with all ten cases, not an established law. Testing it properly means a purpose-built set with the two bug categories balanced and larger n. No confidence interval is quoted, because 10 items do not support one.
+
+## Secondary finding: correctness and quality came apart
+On the seven bugs it caught, the judge still awarded **code_quality = 4** — it docked correctness but kept calling the broken code well-written. That produces **18 judge-vs-tests contradiction rows, all on seeded code and none on genuine model output**. The judge is not scoring one blurred impression of "goodness": it downgrades correctness while style scores stay high. Anyone aggregating rubric dimensions into a single quality number would erase exactly the signal that matters.
+
+## What v2 still does not deliver
+- **Weighted Cohen's κ is still not computed** — the human rating pass remains unpopulated (all 224 cells in `results/human_sheet.csv` are empty). The seeded arm now supplies the score variance that makes κ *computable*, which it was not in v1; the missing input is human rating time, not a statistical obstacle. The selection rule for that pass is pre-registered in `PROTOCOL.md`.
+- **Judge and subjects still share a provider** (all Claude). Unchanged from v1.
+- **The seeded bugs are mine**, so they reflect what I thought would be subtle. An adversary optimising against this specific judge would likely do better than 3/10.
 
 ## Limitations (read these)
 - **Subjects share a provider** (both Claude); this is not a cross-vendor comparison.
