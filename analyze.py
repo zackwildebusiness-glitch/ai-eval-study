@@ -129,6 +129,15 @@ def load_rows(path):
 # ---------------------------------------------------------------------------
 # Analyses
 # ---------------------------------------------------------------------------
+# Arms that are seeded controls, not models under test. Their solutions carry
+# deliberate known bugs, so including them in the model comparison would be
+# meaningless (they are engineered to fail). They ARE included in the agreement
+# and contradiction analyses -- that is the whole reason they exist: they supply
+# the quality variance that makes weighted kappa computable and gives the judge
+# something it can be caught missing.
+CONTROL_ARMS = frozenset({"planted"})
+
+
 def winners_per_source(rows):
     by_model_human = defaultdict(list)
     by_model_judge = defaultdict(list)
@@ -144,9 +153,11 @@ def winners_per_source(rows):
         if key not in test_by_task_model:
             test_by_task_model[key] = (r["tests_passed"], r["tests_total"])
 
-    models = sorted(set(r["model"] for r in rows))
+    arms = sorted(set(r["model"] for r in rows))
+    models = [m for m in arms if m not in CONTROL_ARMS]
+    controls = [m for m in arms if m in CONTROL_ARMS]
     out = OrderedDict()
-    for m in models:
+    for m in arms:
         hp = by_model_human[m]
         jp = by_model_judge[m]
         passed = sum(p for (t, mm), (p, tot) in test_by_task_model.items() if mm == m)
@@ -158,7 +169,7 @@ def winners_per_source(rows):
             "tests_passed": passed,
             "tests_total": total,
         }
-    return out, models
+    return out, models, controls
 
 
 def _winner(stats, models, key, higher_better=True):
@@ -206,18 +217,49 @@ def contradictions(rows):
     return out
 
 
+def planted_detection(rows):
+    """How often did the judge catch a seeded known-bad solution?
+
+    Counts one item per (task, control-arm) pair, using the judge's `correctness`
+    score. 'Caught' means correctness <= 3 -- the judge signalled doubt. 'Missed'
+    means correctness >= 4 on code that is known to fail its own unit tests.
+    Returns (caught, missed, items) where items is a list of per-task detail.
+    """
+    items = []
+    for r in rows:
+        if r["model"] not in CONTROL_ARMS or r["dimension"] != "correctness":
+            continue
+        if r["judge_score"] is None:
+            continue
+        items.append({
+            "task_id": r["task_id"],
+            "arm": r["model"],
+            "judge_correctness": r["judge_score"],
+            "tests_passed": r["tests_passed"],
+            "tests_total": r["tests_total"],
+            "caught": r["judge_score"] <= 3,
+        })
+    items.sort(key=lambda d: d["task_id"])
+    caught = sum(1 for d in items if d["caught"])
+    return caught, len(items) - caught, items
+
+
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
 def build_report(rows):
-    stats, models = winners_per_source(rows)
+    stats, models, controls = winners_per_source(rows)
     agree = agreement_analysis(rows)
     contra = contradictions(rows)
 
     lines = []
     p = lines.append
     p("# Evaluation Report\n")
-    p("Rows scored: %d  |  Models: %s\n" % (len(rows), ", ".join(models)))
+    p("Rows scored: %d  |  Models under test: %s%s\n" % (
+        len(rows),
+        ", ".join(models) if models else "(none)",
+        "  |  Control arms: %s" % ", ".join(controls) if controls else "",
+    ))
 
     p("## 1. Winner per judgment source\n")
     p("| Model | Human mean | Judge mean | Test pass-rate |")
@@ -243,6 +285,24 @@ def build_report(rows):
         else:
             p("- **%s winner:** %s (margin %.3f)" % (label, win, margin))
     p("")
+
+    if controls:
+        p("### Control arm (seeded known-bad code -- NOT a competitor)\n")
+        p("| Arm | Judge mean | Test pass-rate |")
+        p("|---|---|---|")
+        for c in controls:
+            s = stats[c]
+            p("| %s | %s | %s (%d/%d) |" % (
+                c,
+                "%.2f" % s["judge_mean"] if s["judge_mean"] is not None else "-",
+                "%.1f%%" % (100 * s["test_pass_rate"]) if s["test_pass_rate"] is not None else "-",
+                s["tests_passed"], s["tests_total"],
+            ))
+        p("\nThese solutions carry deliberate, documented bugs (see `planted_bugs.csv`) and are "
+          "excluded from the winner comparison above. Their purpose is to create genuine quality "
+          "variance: they give the judge something it can be caught missing, and they are what "
+          "makes the agreement statistics below meaningful. **A high judge mean on this arm is "
+          "itself the finding** -- it means the judge rewarded code that objectively fails its tests.\n")
 
     p("## 2. Human vs LLM-judge agreement\n")
     if agree["n"] == 0:
@@ -276,9 +336,36 @@ def build_report(rows):
                 r["task_id"], r["model"], r["dimension"],
                 r["judge_score"], r["tests_passed"], r["tests_total"],
             ))
+        seeded = [r for r in contra if r["model"] in CONTROL_ARMS]
+        organic = [r for r in contra if r["model"] not in CONTROL_ARMS]
         p("\n**%d contradiction rows** - each is direct evidence of an LLM-judge failure mode "
-          "(fluent-but-wrong code the judge rewarded). This is the finding eval teams care about most.\n"
+          "(fluent-but-wrong code the judge rewarded). This is the finding eval teams care about most."
           % len(contra))
+        p("- %d on seeded control code (deliberate known bugs)." % len(seeded))
+        p("- %d on genuine model output (an unprompted judge miss)." % len(organic))
+        p("")
+
+    caught, missed, items = planted_detection(rows)
+    if items:
+        p("## 4. Planted-bug detection rate (judge sensitivity)\n")
+        p("Each row is one seeded solution with a documented deliberate bug that fails its unit "
+          "tests. 'Caught' = the judge gave correctness <= 3. 'Missed' = the judge gave >= 4 to "
+          "code it should have doubted.\n")
+        p("**Judge caught %d of %d (%.0f%%); missed %d (%.0f%%).**\n" % (
+            caught, len(items), 100.0 * caught / len(items),
+            missed, 100.0 * missed / len(items),
+        ))
+        p("| Task | Judge correctness | Tests | Verdict |")
+        p("|---|---|---|---|")
+        for d in items:
+            p("| %s | %d | %d/%d | %s |" % (
+                d["task_id"], d["judge_correctness"],
+                d["tests_passed"], d["tests_total"],
+                "caught" if d["caught"] else "**MISSED**",
+            ))
+        p("\nUnlike the ceiling-clustering result, this number is unambiguous: the ground truth is "
+          "known by construction, so a miss cannot be explained away as the code genuinely being "
+          "good.\n")
 
     return "\n".join(lines)
 
@@ -320,6 +407,37 @@ def _selftest():
     c = contradictions(rows)
     print("  contradictions found    = %d (expect 1)" % len(c))
     ok &= (len(c) == 1 and c[0]["task_id"] == "t1")
+
+    # Test E: control arms are excluded from the model comparison but still
+    # counted in contradictions. A control arm must never be crowned "winner",
+    # and must not suppress a real tie between the two models under test.
+    ctrl_rows = [
+        {"task_id": "t1", "model": "opus", "dimension": "correctness",
+         "human_score": None, "judge_score": 5, "tests_passed": 5, "tests_total": 5},
+        {"task_id": "t1", "model": "sonnet", "dimension": "correctness",
+         "human_score": None, "judge_score": 5, "tests_passed": 5, "tests_total": 5},
+        {"task_id": "t1", "model": "planted", "dimension": "correctness",
+         "human_score": None, "judge_score": 5, "tests_passed": 3, "tests_total": 5},
+    ]
+    stats, models, controls = winners_per_source(ctrl_rows)
+    print("  comparison models       = %s (expect ['opus', 'sonnet'])" % models)
+    ok &= (models == ["opus", "sonnet"] and controls == ["planted"])
+    win, _ = _winner(stats, models, "test_pass_rate", True)
+    print("  winner w/ control arm   = %s (expect tie)" % win)
+    ok &= (win == "tie")
+    ok &= ("planted" in stats)  # control stats still computed, just reported apart
+
+    # Test F: planted detection counts a >=4 correctness score on failing code
+    # as MISSED, and a <=3 score as caught.
+    det_rows = ctrl_rows + [
+        {"task_id": "t2", "model": "planted", "dimension": "correctness",
+         "human_score": None, "judge_score": 2, "tests_passed": 1, "tests_total": 4},
+        {"task_id": "t2", "model": "planted", "dimension": "code_quality",
+         "human_score": None, "judge_score": 5, "tests_passed": 1, "tests_total": 4},
+    ]
+    caught, missed, items = planted_detection(det_rows)
+    print("  planted caught/missed   = %d/%d (expect 1/1 over 2 items)" % (caught, missed))
+    ok &= (caught == 1 and missed == 1 and len(items) == 2)
 
     print("\nSELFTEST %s" % ("PASS" if ok else "FAIL"))
     return 0 if ok else 1

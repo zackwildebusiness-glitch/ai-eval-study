@@ -1,6 +1,6 @@
 # Evaluation Report
 
-Rows scored: 184  |  Models: opus, sonnet
+Rows scored: 184  |  Models under test: opus, sonnet
 
 ## 1. Winner per judgment source
 
