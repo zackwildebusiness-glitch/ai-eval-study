@@ -1,0 +1,13 @@
+task_id,model,dimension,human_score,judge_score,tests_passed,tests_total
+t1,A,correctness,5,5,5,5
+t1,A,completeness,4,4,5,5
+t1,B,correctness,2,4,2,5
+t1,B,completeness,2,3,2,5
+t2,A,correctness,4,3,4,4
+t2,A,completeness,4,4,4,4
+t2,B,correctness,5,5,4,4
+t2,B,completeness,3,4,4,4
+t3,A,correctness,3,2,3,4
+t3,A,completeness,3,3,3,4
+t3,B,correctness,5,5,4,4
+t3,B,completeness,4,5,4,4

@@ -1,0 +1,7 @@
+# Python runtime cruft
+__pycache__/
+*.pyc
+
+# Keep everything else — tasks/, solutions/, results/ and eval-report.md are the
+# deliverables. results/judge_raw.json is kept deliberately: the raw judge output is
+# the evidence behind results/judge.csv and should be independently inspectable.
