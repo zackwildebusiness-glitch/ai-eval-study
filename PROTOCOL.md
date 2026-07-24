@@ -116,3 +116,26 @@ Bug admissibility criteria, fixed in advance:
 - Either outcome is publishable. Neither will be reframed after the fact.
 - n = 10 seeded items is small. The detection rate will be reported with that caveat attached
   and **no confidence interval implying more precision than 10 items support.**
+
+## Human rating pass — selection rule fixed in advance
+
+v1's human column was left unpopulated because the judge's near-zero variance made κ undefined
+regardless of effort. The seeded arm should change that, so the human pass becomes worth running.
+
+To keep it honest, the selection rule is fixed **now, before any v2 judge score is visible**:
+
+- The pool is 56 items × 4 dimensions = **224 cells**. Rating all of them is the preferred
+  option. If it is subsampled instead, the subsample is drawn **at random with a recorded seed
+  from the full 56**, never hand-picked.
+- **The seeded items are not oversampled.** They are 10/56 of the pool and must stay at that
+  proportion in whatever is rated. Deliberately rating all 10 planted items plus a handful of
+  clean ones would inflate apparent human-judge disagreement, because disagreement concentrates
+  exactly where the bugs are.
+- The rater works from `solutions_blind/<id>/` only and does not open `blind_key.csv`,
+  `planted_bugs.csv`, or the judge's scores beforehand. The rater knows that *some* items are
+  seeded; they do not know **which**, or how many.
+- **Rate before reading the judge's output.** Seeing judge scores first would anchor the human
+  scores and destroy the independence the κ depends on.
+- Partial completion is acceptable and is handled: `analyze.py` tolerates blank human cells and
+  reports κ over whatever pairs exist, with n stated. A partial κ with an honest n is worth more
+  than a complete one produced by rushing.
