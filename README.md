@@ -1,13 +1,19 @@
 # AI Coding-Model Evaluation Study
 
-A small, honest evaluation comparing two coding models on identical tasks, using **three
-independent judgment sources** — objective unit tests, a blind human rater, and a blind
-LLM-judge — and reporting how well they agree.
+A small, honest evaluation comparing two coding models on identical tasks. The design has
+**three independent judgment sources** — objective unit tests, a blind LLM-judge, and a blind
+human rater — and reports how well they agree.
 
 **Subjects under evaluation:** Claude **Opus** (model A) vs Claude **Sonnet** (model B).
 **LLM-judge:** Claude **Haiku** (independent of both subjects; also tests "can a lighter
 model judge stronger ones?").
-**Human rater:** the author, scoring blind.
+**Human rater:** the author, scoring blind — **designed and blind-ready, but NOT executed in
+v1.** `results/human_sheet.csv` is generated and shuffled, and all 184 `human_score` cells are
+empty. v1 therefore reports **two** populated sources, not three. This is a deliberate call,
+not an oversight: v1's judge showed near-zero score variance, which makes human-vs-judge
+weighted Cohen's κ mathematically undefined no matter how many hours of rating were spent —
+so rating that pool would have yielded no κ. See `FINDINGS.md` §3 and the v2 addendum in
+`PROTOCOL.md`.
 
 See `PROTOCOL.md` for the methodology and `rubric.md` for the locked scoring rubric.
 
