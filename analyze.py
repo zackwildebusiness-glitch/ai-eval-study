@@ -84,6 +84,25 @@ def fmt_kappa(k):
     return "%.3f" % k
 
 
+def kappa_label(k):
+    """Landis & Koch style band. Reported alongside the number so a reader is
+    not left to guess whether 0.79 is good; the bands are conventional, not a
+    property of this data."""
+    if k is None:
+        return "undefined"
+    if k < 0:
+        return "worse than chance"
+    if k < 0.2:
+        return "slight"
+    if k < 0.4:
+        return "fair"
+    if k < 0.6:
+        return "moderate"
+    if k < 0.8:
+        return "substantial"
+    return "near-perfect"
+
+
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
@@ -217,6 +236,55 @@ def contradictions(rows):
     return out
 
 
+JUDGE_CORRECT_MIN = 4   # judge correctness >= this == "the judge says this is correct"
+
+
+def judge_vs_tests_kappa(rows):
+    """Cohen's kappa between the LLM judge and the unit tests.
+
+    The two raters are the judge and the test suite, both answering one binary
+    question: is this solution correct? The judge says yes at correctness >= 4;
+    the tests say yes when every test passes.
+
+    This needs NO human rater, which is the point -- it was computable from data
+    already collected. Returns (kappa, cells, po, pe) with cells as a dict of
+    the 2x2, or (None, cells, po, None) when kappa is undefined (a rater with no
+    variance drives expected agreement to 1).
+
+    CAVEAT, and it must travel with the number: kappa is prevalence-dependent
+    and this pool is deliberately enriched with seeded bad solutions, so the
+    result describes agreement ON THIS POOL, not on naturally occurring code.
+    """
+    pairs = []
+    for r in rows:
+        if r["dimension"] != "correctness" or r["judge_score"] is None:
+            continue
+        if r["tests_total"] is None or r["tests_total"] <= 0:
+            continue
+        judge_ok = 1 if r["judge_score"] >= JUDGE_CORRECT_MIN else 0
+        tests_ok = 1 if r["tests_passed"] == r["tests_total"] else 0
+        pairs.append((judge_ok, tests_ok))
+
+    n = len(pairs)
+    cells = {
+        "both_correct": sum(1 for j, t in pairs if j == 1 and t == 1),
+        "false_pass": sum(1 for j, t in pairs if j == 1 and t == 0),
+        "false_alarm": sum(1 for j, t in pairs if j == 0 and t == 1),
+        "both_broken": sum(1 for j, t in pairs if j == 0 and t == 0),
+        "n": n,
+    }
+    if n == 0:
+        return None, cells, None, None
+
+    po = (cells["both_correct"] + cells["both_broken"]) / n
+    p_judge = (cells["both_correct"] + cells["false_pass"]) / n
+    p_tests = (cells["both_correct"] + cells["false_alarm"]) / n
+    pe = p_judge * p_tests + (1 - p_judge) * (1 - p_tests)
+    if abs(1 - pe) < 1e-12:
+        return None, cells, po, pe
+    return (po - pe) / (1 - pe), cells, po, pe
+
+
 def planted_detection(rows):
     """How often did the judge catch a seeded known-bad solution?
 
@@ -304,7 +372,34 @@ def build_report(rows):
           "makes the agreement statistics below meaningful. **A high judge mean on this arm is "
           "itself the finding** -- it means the judge rewarded code that objectively fails its tests.\n")
 
-    p("## 2. Human vs LLM-judge agreement\n")
+    jk, jcells, jpo, jpe = judge_vs_tests_kappa(rows)
+    if jcells["n"] > 0:
+        p("## 2. Judge vs unit tests -- Cohen's kappa\n")
+        p("Two raters, one binary question: is this solution correct? The judge says yes at "
+          "correctness >= %d; the tests say yes when every test passes. **No human rater is "
+          "needed for this statistic.**\n" % JUDGE_CORRECT_MIN)
+        p("| | tests say correct | tests say broken |")
+        p("|---|---|---|")
+        p("| **judge says correct** | %d | **%d** |" % (jcells["both_correct"], jcells["false_pass"]))
+        p("| **judge says broken** | %d | %d |" % (jcells["false_alarm"], jcells["both_broken"]))
+        p("")
+        if jk is None:
+            p("- kappa = undefined (a rater showed no variance). n=%d\n" % jcells["n"])
+        else:
+            p("- Observed agreement **%.1f%%**, chance agreement **%.1f%%** -> **kappa = %.3f** (%s). n=%d"
+              % (100 * jpo, 100 * jpe, jk, kappa_label(jk), jcells["n"]))
+            p("- **%d false passes** (judge cleared code its tests fail) and **%d false alarms** "
+              "(judge doubted code that passes)." % (jcells["false_pass"], jcells["false_alarm"]))
+            if jcells["false_alarm"] == 0 and jcells["false_pass"] > 0:
+                p("- The asymmetry is the finding: this judge is **conservative in the dangerous "
+                  "direction** -- it waves broken code through rather than raising false alarms.")
+        p("\n> **Two caveats that must travel with this number.** (1) kappa is *prevalence-dependent* "
+          "and this pool is deliberately enriched with seeded bad solutions, so it describes "
+          "agreement **on this pool**, not on naturally occurring code. (2) This analysis was "
+          "**not pre-registered** -- `PROTOCOL.md` specified a human-vs-judge kappa; this "
+          "judge-vs-tests kappa is post-hoc.\n")
+
+    p("## 3. Human vs LLM-judge agreement\n")
     if agree["n"] == 0:
         p("_Pending: no human ratings supplied yet. Fill `results/human_sheet.csv`, "
           "re-run `merge_scores.py`, then re-run this report to get human-vs-judge kappa._\n")
@@ -438,6 +533,34 @@ def _selftest():
     caught, missed, items = planted_detection(det_rows)
     print("  planted caught/missed   = %d/%d (expect 1/1 over 2 items)" % (caught, missed))
     ok &= (caught == 1 and missed == 1 and len(items) == 2)
+
+    # Test G: judge-vs-tests kappa, hand-computed.
+    #   2x2: both_correct=46, false_pass=3, false_alarm=0, both_broken=7 (n=56)
+    #   Po = 53/56 = .946429
+    #   p_judge = 49/56 = .875 ; p_tests = 46/56 = .821429
+    #   Pe = .875*.821429 + .125*.178571 = .718750 + .022321 = .741071
+    #   k  = (.946429 - .741071) / (1 - .741071) = .205357/.258929 = .793103
+    g_rows = []
+    def _row(dim, judge, tp, tt):
+        return {"task_id": "t", "model": "m", "dimension": dim,
+                "human_score": None, "judge_score": judge,
+                "tests_passed": tp, "tests_total": tt}
+    g_rows += [_row("correctness", 5, 5, 5) for _ in range(46)]   # judge ok, tests ok
+    g_rows += [_row("correctness", 5, 3, 5) for _ in range(3)]    # judge ok, tests fail
+    g_rows += [_row("correctness", 2, 1, 5) for _ in range(7)]    # judge doubts, tests fail
+    # a non-correctness row must be ignored entirely
+    g_rows += [_row("code_quality", 5, 1, 5)]
+    kg, cells, po, pe = judge_vs_tests_kappa(g_rows)
+    print("  judge-vs-tests kappa    = %s (expect 0.793)" % fmt_kappa(kg))
+    ok &= (kg is not None and abs(kg - 0.793103) < 0.0005)
+    print("  2x2 n / false_pass      = %d / %d (expect 56 / 3)" % (cells["n"], cells["false_pass"]))
+    ok &= (cells["n"] == 56 and cells["false_pass"] == 3 and cells["false_alarm"] == 0)
+
+    # Test H: a judge with no variance makes this kappa undefined, not 0.
+    flat_rows = [_row("correctness", 5, 5, 5) for _ in range(10)]
+    kh, _, _, _ = judge_vs_tests_kappa(flat_rows)
+    print("  no-variance judge kappa = %s (expect undefined)" % fmt_kappa(kh))
+    ok &= (kh is None)
 
     print("\nSELFTEST %s" % ("PASS" if ok else "FAIL"))
     return 0 if ok else 1

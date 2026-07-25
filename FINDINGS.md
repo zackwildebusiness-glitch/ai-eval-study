@@ -97,11 +97,26 @@ All seven **caught** bugs are *local and pattern-visible* — a single operator 
 
 **Bounding this honestly:** n = 10 seeded items, one judge model, one task family. Three misses is enough to notice a pattern and not enough to prove one — the local-vs-stateful split is a hypothesis consistent with all ten cases, not an established law. Testing it properly means a purpose-built set with the two bug categories balanced and larger n. No confidence interval is quoted, because 10 items do not support one.
 
+## Agreement with ground truth: κ = 0.79
+
+Treating the **judge** and the **unit tests** as two raters answering one binary question — is this solution correct? — gives a Cohen's κ that needs no human rater at all:
+
+| | tests say correct | tests say broken |
+|---|---|---|
+| **judge says correct** | 46 | **3** |
+| **judge says broken** | **0** | 7 |
+
+Observed agreement 94.6%, chance agreement 74.1%, **κ = 0.793 (substantial)**, n = 56. (Judge correctness ≥ 4 counts as "correct"; all-tests-passing counts as "correct".)
+
+**The asymmetry is the result, not the κ.** Three false passes, *zero* false alarms: this judge never once doubted code that actually works, but it cleared three solutions that fail their own tests. It is conservative in the dangerous direction — it waves broken code through rather than crying wolf. For deciding whether to put an LLM judge in a pipeline, that error profile matters more than the headline coefficient, because the two failure modes cost very different amounts.
+
+**Two caveats belong with this number.** (1) κ is **prevalence-dependent**, and this pool is deliberately enriched — 10 of 56 are seeded bad. It describes agreement *on this pool*, not on naturally occurring code, and quoting it as a general property of LLM judges would be wrong. (2) It is **post-hoc**: `PROTOCOL.md` pre-registered a *human*-vs-judge κ, not this one. It is reported here because it was computable from data already collected, but it did not go through pre-registration and should be read accordingly.
+
 ## Secondary finding: correctness and quality came apart
 On the seven bugs it caught, the judge still awarded **code_quality = 4** — it docked correctness but kept calling the broken code well-written. That produces **18 judge-vs-tests contradiction rows, all on seeded code and none on genuine model output**. The judge is not scoring one blurred impression of "goodness": it downgrades correctness while style scores stay high. Anyone aggregating rubric dimensions into a single quality number would erase exactly the signal that matters.
 
 ## What v2 still does not deliver
-- **Weighted Cohen's κ is still not computed** — the human rating pass remains unpopulated (all 224 cells in `results/human_sheet.csv` are empty). The seeded arm now supplies the score variance that makes κ *computable*, which it was not in v1; the missing input is human rating time, not a statistical obstacle. The selection rule for that pass is pre-registered in `PROTOCOL.md`.
+- **Human-vs-judge inter-rater reliability is not reported** — the blind human pass was never run (all 224 cells in `results/human_sheet.csv` are empty). A judge-vs-tests κ *is* reported above; the human comparison is a different question and remains open.
 - **Judge and subjects still share a provider** (all Claude). Unchanged from v1.
 - **The seeded bugs are mine**, so they reflect what I thought would be subtle. An adversary optimising against this specific judge would likely do better than 3/10.
 

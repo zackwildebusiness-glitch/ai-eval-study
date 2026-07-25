@@ -21,7 +21,22 @@ Rows scored: 224  |  Models under test: opus, sonnet  |  Control arms: planted
 
 These solutions carry deliberate, documented bugs (see `planted_bugs.csv`) and are excluded from the winner comparison above. Their purpose is to create genuine quality variance: they give the judge something it can be caught missing, and they are what makes the agreement statistics below meaningful. **A high judge mean on this arm is itself the finding** -- it means the judge rewarded code that objectively fails its tests.
 
-## 2. Human vs LLM-judge agreement
+## 2. Judge vs unit tests -- Cohen's kappa
+
+Two raters, one binary question: is this solution correct? The judge says yes at correctness >= 4; the tests say yes when every test passes. **No human rater is needed for this statistic.**
+
+| | tests say correct | tests say broken |
+|---|---|---|
+| **judge says correct** | 46 | **3** |
+| **judge says broken** | 0 | 7 |
+
+- Observed agreement **94.6%**, chance agreement **74.1%** -> **kappa = 0.793** (substantial). n=56
+- **3 false passes** (judge cleared code its tests fail) and **0 false alarms** (judge doubted code that passes).
+- The asymmetry is the finding: this judge is **conservative in the dangerous direction** -- it waves broken code through rather than raising false alarms.
+
+> **Two caveats that must travel with this number.** (1) kappa is *prevalence-dependent* and this pool is deliberately enriched with seeded bad solutions, so it describes agreement **on this pool**, not on naturally occurring code. (2) This analysis was **not pre-registered** -- `PROTOCOL.md` specified a human-vs-judge kappa; this judge-vs-tests kappa is post-hoc.
+
+## 3. Human vs LLM-judge agreement
 
 _Pending: no human ratings supplied yet. Fill `results/human_sheet.csv`, re-run `merge_scores.py`, then re-run this report to get human-vs-judge kappa._
 

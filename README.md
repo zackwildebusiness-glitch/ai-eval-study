@@ -7,13 +7,16 @@ human rater — and reports how well they agree.
 **Subjects under evaluation:** Claude **Opus** (model A) vs Claude **Sonnet** (model B).
 **LLM-judge:** Claude **Haiku** (independent of both subjects; also tests "can a lighter
 model judge stronger ones?").
-**Human rater:** the author, scoring blind — **designed and blind-ready, but NOT executed in
-v1.** `results/human_sheet.csv` is generated and shuffled, and all 184 `human_score` cells are
-empty. v1 therefore reports **two** populated sources, not three. This is a deliberate call,
-not an oversight: v1's judge showed near-zero score variance, which makes human-vs-judge
-weighted Cohen's κ mathematically undefined no matter how many hours of rating were spent —
-so rating that pool would have yielded no κ. See `FINDINGS.md` §3 and the v2 addendum in
-`PROTOCOL.md`.
+**Human rater:** the author, scoring blind — **designed and blind-ready, but not executed.**
+`results/human_sheet.csv` is generated and shuffled, and every `human_score` cell is empty, so
+**two** of the three sources are populated. Human-vs-judge inter-rater reliability is therefore
+not reported.
+
+**A κ *is* reported**, between the other two raters: **judge vs unit tests, κ = 0.793
+(substantial)** over 56 solutions — 3 false passes, 0 false alarms. That statistic needs no
+human. It is prevalence-dependent (this pool is deliberately enriched with seeded bad code) and
+it is post-hoc rather than pre-registered; both caveats are stated wherever it appears. See
+`FINDINGS.md`.
 
 See `PROTOCOL.md` for the methodology and `rubric.md` for the locked scoring rubric.
 
