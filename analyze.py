@@ -419,7 +419,7 @@ def build_report(rows):
         ))
     p("\n_Kappa guide: <0 worse than chance, 0-.2 slight, .2-.4 fair, .4-.6 moderate, .6-.8 substantial, .8-1 near-perfect._\n")
 
-    p("## 3. Judge-vs-tests contradictions (the headline finding)\n")
+    p("## 4. Judge-vs-tests contradictions (the headline finding)\n")
     if not contra:
         p("None: the judge never rated a test-failing output >= 4. (Either strong judge, or few failing outputs.)\n")
     else:
@@ -442,7 +442,7 @@ def build_report(rows):
 
     caught, missed, items = planted_detection(rows)
     if items:
-        p("## 4. Planted-bug detection rate (judge sensitivity)\n")
+        p("## 5. Planted-bug detection rate (judge sensitivity)\n")
         p("Each row is one seeded solution with a documented deliberate bug that fails its unit "
           "tests. 'Caught' = the judge gave correctness <= 3. 'Missed' = the judge gave >= 4 to "
           "code it should have doubted.\n")

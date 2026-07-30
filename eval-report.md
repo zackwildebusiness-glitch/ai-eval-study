@@ -49,7 +49,7 @@ Quadratic-weighted Cohen's kappa (corrects for chance); exact = identical score.
 
 _Kappa guide: <0 worse than chance, 0-.2 slight, .2-.4 fair, .4-.6 moderate, .6-.8 substantial, .8-1 near-perfect._
 
-## 3. Judge-vs-tests contradictions (the headline finding)
+## 4. Judge-vs-tests contradictions (the headline finding)
 
 Cases where the LLM-judge scored an output >= 4 while its unit tests objectively failed:
 
@@ -78,7 +78,7 @@ Cases where the LLM-judge scored an output >= 4 while its unit tests objectively
 - 18 on seeded control code (deliberate known bugs).
 - 0 on genuine model output (an unprompted judge miss).
 
-## 4. Planted-bug detection rate (judge sensitivity)
+## 5. Planted-bug detection rate (judge sensitivity)
 
 Each row is one seeded solution with a documented deliberate bug that fails its unit tests. 'Caught' = the judge gave correctness <= 3. 'Missed' = the judge gave >= 4 to code it should have doubted.
 
